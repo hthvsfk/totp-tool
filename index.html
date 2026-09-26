@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>TOTP</title>
+<style>
+body{font-family:monospace;background:#111;color:#0f0;padding:24px}
+#s{width:360px;font-size:18px;padding:10px;background:#222;color:#0f0;border:1px solid #0f0}
+#code{font-size:72px;letter-spacing:10px;margin:24px 0;color:#0f0}
+#sec{font-size:28px;color:#ff0}
+.hint{color:#888;font-size:14px;margin-top:16px}
+</style></head><body>
+<h2>TOTP Generator</h2>
+<input id="s" placeholder="paste TOTP secret here" autocomplete="off" spellcheck="false">
+<div id="code">------</div>
+<div id="sec"></div>
+<div class="hint">Read the code when the countdown is above 20s, then enter it immediately.</div>
+<script>
+function b32decode(s){
+  s=s.toUpperCase().replace(/=+$/,'');
+  var alpha='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  var bits='',out=[];
+  for(var i=0;i<s.length;i++){
+    var v=alpha.indexOf(s[i]);
+    if(v<0)continue;
+    bits+=('00000'+v.toString(2)).slice(-5);
+  }
+  for(var i=0;i+8<=bits.length;i+=8)out.push(parseInt(bits.substr(i,8),2));
+  return out;
+}
+function sha1(bytes){
+  var h0=0x67452301,h1=0xEFCDAB89,h2=0x98BADCFE,h3=0x10325476,h4=0xC3D2E1F0;
+  var msg=bytes.slice();
+  var bitLen=msg.length*8;
+  msg.push(0x80);
+  while(msg.length%64!==56)msg.push(0);
+  var hi=Math.floor(bitLen/0x100000000),lo=bitLen>>>0;
+  msg.push((hi>>>24)&255,(hi>>>16)&255,(hi>>>8)&255,hi&255,
+           (lo>>>24)&255,(lo>>>16)&255,(lo>>>8)&255,lo&255);
+  var w=new Array(80);
+  function rotl(x,n){return((x<<n)|(x>>>(32-n)))>>>0;}
+  for(var i=0;i<msg.length;i+=64){
+    for(var t=0;t<16;t++)w[t]=((msg[i+t*4]<<24)|(msg[i+t*4+1]<<16)|(msg[i+t*4+2]<<8)|msg[i+t*4+3])>>>0;
+    for(var t=16;t<80;t++)w[t]=rotl(w[t-3]^w[t-8]^w[t-14]^w[t-16],1);
+    var a=h0,b=h1,c=h2,d=h3,e=h4,f,k,tmp;
+    for(var t=0;t<80;t++){
+      if(t<20){f=(b&c)|((~b)&d);k=0x5A827999;}
+      else if(t<40){f=b^c^d;k=0x6ED9EBA1;}
+      else if(t<60){f=(b&c)|(b&d)|(c&d);k=0x8F1BBCDC;}
+      else{f=b^c^d;k=0xCA62C1D6;}
+      tmp=(rotl(a,5)+f+e+k+w[t])>>>0;
+      e=d;d=c;c=rotl(b,30);b=a;a=tmp;
+    }
+    h0=(h0+a)>>>0;h1=(h1+b)>>>0;h2=(h2+c)>>>0;h3=(h3+d)>>>0;h4=(h4+e)>>>0;
+  }
+  var out=[];
+  [h0,h1,h2,h3,h4].forEach(function(h){out.push((h>>>24)&255,(h>>>16)&255,(h>>>8)&255,h&255);});
+  return out;
+}
+function hmac_sha1(key,msg){
+  if(key.length>64)key=sha1(key);
+  key=key.slice();
+  while(key.length<64)key.push(0);
+  var o=[],ii=[],j;
+  for(j=0;j<64;j++){o.push(key[j]^0x5c);ii.push(key[j]^0x36);}
+  return sha1(o.concat(sha1(ii.concat(msg))));
+}
+function hotp(key,ctr){
+  var hi=Math.floor(ctr/0x100000000),lo=ctr>>>0;
+  var msg=[(hi>>>24)&255,(hi>>>16)&255,(hi>>>8)&255,hi&255,
+           (lo>>>24)&255,(lo>>>16)&255,(lo>>>8)&255,lo&255];
+  var mac=hmac_sha1(key,msg);
+  var off=mac[19]&15;
+  return(((mac[off]&127)<<24)|(mac[off+1]<<16)|(mac[off+2]<<8)|mac[off+3])>>>0;
+}
+function totp(secret){
+  var c=hotp(b32decode(secret),Math.floor(Date.now()/30000));
+  var s=(c%1000000).toString();
+  while(s.length<6)s='0'+s;
+  return s;
+}
+function update(){
+  var s=document.getElementById('s').value.trim();
+  if(!s){document.getElementById('code').textContent='------';document.getElementById('sec').textContent='';return;}
+  try{
+    document.getElementById('code').textContent=totp(s);
+    var remain=30-Math.floor(Date.now()/1000)%30;
+    document.getElementById('sec').textContent=remain+'s remaining';
+  }catch(e){document.getElementById('code').textContent='ERROR';}
+}
+setInterval(update,500);update();
+</script></body></html>
